@@ -8,12 +8,12 @@
 %%% Public interface.
 %%%===================================================================
 
-%% @doc Declare Arweave metrics.
+%% @doc Declare BigFile metrics.
 register() ->
 	%% App info
 	prometheus_gauge:new([
 		{name, arweave_release},
-		{help, "Arweave release number"}
+		{help, "BigFile release number"}
 	]),
 	%% Release number never changes so just set it here.
 	prometheus_gauge:set(arweave_release, ?RELEASE_NUMBER),

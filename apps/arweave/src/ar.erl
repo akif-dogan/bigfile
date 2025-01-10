@@ -1,5 +1,5 @@
 %%%
-%%% @doc Arweave server entrypoint and basic utilities.
+%%% @doc BigFile server entrypoint and basic utilities.
 %%%
 -module(ar).
 
@@ -661,7 +661,7 @@ parse_cli_args([Arg | _Rest], _O) ->
 	io:format("~nUnknown argument: ~s.~n", [Arg]),
 	show_help().
 
-%% @doc Start an Arweave node on this BEAM.
+%% @doc Start a BigFile node on this BEAM.
 start() ->
 	start(?DEFAULT_HTTP_IFACE_PORT).
 start(Port) when is_integer(Port) ->

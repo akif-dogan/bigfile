@@ -1,7 +1,7 @@
 -ifndef(AR_HRL).
 -define(AR_HRL, true).
 
-%%% A collection of record structures used throughout the Arweave server.
+%%% A collection of record structures used throughout the BigFile server.
 
 %% True if arweave was launched with -setcookie=test
 %% (e.g. bin/test or bin/shell)

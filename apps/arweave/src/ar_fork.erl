@@ -1,5 +1,5 @@
 %%%
-%%% @doc The module defines Arweave hard forks' heights.
+%%% @doc The module defines BigFile hard forks' heights.
 %%%
 
 -module(ar_fork).

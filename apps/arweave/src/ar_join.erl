@@ -62,7 +62,7 @@ start2([]) ->
 	timer:sleep(1000),
 	erlang:halt();
 start2(Peers) ->
-	ar:console("Joining the Arweave network...~n"),
+	ar:console("Joining the BigFile network...~n"),
 	[{H, _, _} | _] = BI = get_block_index(Peers, ?REJOIN_RETRIES),
 	ar:console("Downloaded the block index successfully.~n", []),
 	B = get_block(Peers, H),

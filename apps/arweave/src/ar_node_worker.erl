@@ -439,7 +439,7 @@ handle_info({event, nonce_limiter, initialized}, State) ->
 	ar_events:send(node_state, {initialized, B}),
 	ar_events:send(node_state, {checkpoint_block, 
 		ar_block_cache:get_checkpoint_block(RecentBI)}),
-	ar:console("Joined the Arweave network successfully at the block ~s, height ~B.~n",
+	ar:console("Joined the BigFile network successfully at the block ~s, height ~B.~n",
 			[ar_util:encode(Current), Height]),
 	?LOG_INFO([{event, joined_the_network}, {block, ar_util:encode(Current)},
 			{height, Height}]),

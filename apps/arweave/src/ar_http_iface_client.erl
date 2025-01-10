@@ -1,5 +1,5 @@
 %%%
-%%% @doc Exposes access to an internal Arweave client to external nodes on the network.
+%%% @doc Exposes access to an internal BigFile client to external nodes on the network.
 %%%
 
 -module(ar_http_iface_client).
