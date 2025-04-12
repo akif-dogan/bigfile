@@ -1,5 +1,5 @@
 ######################################################################
-## Default vm arguments templates used by BigFile.
+## Default vm arguments templates used by Arweave.
 ##
 ## Some useful links to configure emulator flags:
 ##   https://www.erlang.org/doc/apps/erts/erl_cmd.html#emulator-flags
@@ -12,10 +12,10 @@
 ## schedulers that will be used, to do that: +S 16:16
 ######################################################################
 ## Name of the node
--name {{ release_name }}@127.0.0.1
+-name ${BIGNAME:-{{ release_name }}@127.0.0.1}
 
 ## Cookie for distributed erlang
--setcookie {{ release_name }}
+-setcookie ${BIGCOOKIE:-{{ release_name }}}
 
 ## This is now the default as of OTP-26
 ## Multi-time warp mode in combination with time correction is the
