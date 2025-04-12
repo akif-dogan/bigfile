@@ -97,14 +97,14 @@ jobs:
             _build/default/plugins/zipper
           key: deps-cache-${{ hashFiles('rebar.lock') }}
 
-      - name: Compile arweave release
+      - name: Compile bigfile release
         run: ./big-rebar3 default release
 
-      - name: Build arweave test sources
+      - name: Build bigfile test sources
         run: ./big-rebar3 test compile
 
       # some artifacts are compiled and only available
-      # in arweave directy (libraries)
+      # in bigfile directy (libraries)
       - name: Prepare artifacts
         run: |
           chmod -R u+w ./_build
@@ -126,7 +126,7 @@ jobs:
             apps.tar.gz
 
       # some artifacts are compiled and only available
-      # in arweave directy (libraries)
+      # in bigfile directy (libraries)
       - name: Prepare artifacts
         run: |
           chmod -R u+w ./_build
