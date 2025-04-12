@@ -441,7 +441,7 @@ worker(PackingState) ->
 			decrement_buffer_size(),
 			worker(PackingState);
 		{generate_entropy, Ref, From, {RewardAddr, PaddedEndOffset, SubChunkStart}} ->
-			Entropy = ar_packing_server:generate_replica_2_9_entropy(RewardAddr, PaddedEndOffset, SubChunkStart),
+			Entropy = big_packing_server:generate_replica_2_9_entropy(RewardAddr, PaddedEndOffset, SubChunkStart),
 			From ! {entropy_generated, Ref, Entropy},
 			worker(PackingState)
 	end.
@@ -586,7 +586,7 @@ unpack({replica_2_9, RewardAddr} = Packing, AbsoluteEndOffset,
 			case unpack_replica_2_9_sub_chunks(RewardAddr, AbsoluteEndOffset,
 					RandomXState, SubChunks) of
 				{ok, Unpacked} ->
-					case ar_packing_server:unpad_chunk(Packing, Unpacked,
+					case big_packing_server:unpad_chunk(Packing, Unpacked,
 							ChunkSize, PackedSize) of
 						error ->
 							{error, invalid_padding};

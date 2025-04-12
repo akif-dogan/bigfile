@@ -100,17 +100,17 @@ handle_info(Info, State) ->
 %% @doc Return true if the 2.9 entropy with the given offset is recorded.
 is_entropy_recorded(PaddedEndOffset, StoreID) ->
     %% Entropy indexing changed between 2.9.0 and 2.9.1. So we'll use a new
-    %% sync_record id (ar_chunk_storage_replica_2_9_1_entropy) going forward.
+    %% sync_record id (big_chunk_storage_replica_2_9_1_entropy) going forward.
     %% The old id (ar_chunk_storage_replica_2_9_entropy) should not be used.
-    ID = ar_chunk_storage_replica_2_9_1_entropy,
+    ID = big_chunk_storage_replica_2_9_1_entropy,
     ChunkBucketStart = big_chunk_storage:get_chunk_bucket_start(PaddedEndOffset),
     big_sync_record:is_recorded(ChunkBucketStart + 1, ID, StoreID).
 
 update_sync_records(IsComplete, PaddedEndOffset, StoreID, RewardAddr) ->
     %% Entropy indexing changed between 2.9.0 and 2.9.1. So we'll use a new
-    %% sync_record id (ar_chunk_storage_replica_2_9_1_entropy) going forward.
+    %% sync_record id (big_chunk_storage_replica_2_9_1_entropy) going forward.
     %% The old id (ar_chunk_storage_replica_2_9_entropy) should not be used.
-    ID = ar_chunk_storage_replica_2_9_1_entropy,
+    ID = big_chunk_storage_replica_2_9_1_entropy,
     BucketEnd = big_chunk_storage:get_chunk_bucket_end(PaddedEndOffset),
     BucketStart = big_chunk_storage:get_chunk_bucket_start(PaddedEndOffset),
     big_sync_record:add_async(replica_2_9_entropy, BucketEnd, BucketStart, ID, StoreID),
@@ -141,9 +141,9 @@ update_sync_records(IsComplete, PaddedEndOffset, StoreID, RewardAddr) ->
 
 delete_record(PaddedEndOffset, StoreID) ->
     %% Entropy indexing changed between 2.9.0 and 2.9.1. So we'll use a new
-    %% sync_record id (ar_chunk_storage_replica_2_9_1_entropy) going forward.
+    %% sync_record id (big_chunk_storage_replica_2_9_1_entropy) going forward.
     %% The old id (ar_chunk_storage_replica_2_9_entropy) should not be used.
-    ID = ar_chunk_storage_replica_2_9_1_entropy,
+    ID = big_chunk_storage_replica_2_9_1_entropy,
     BucketStart = big_chunk_storage:get_chunk_bucket_start(PaddedEndOffset),
     big_sync_record:delete(BucketStart + ?DATA_CHUNK_SIZE, BucketStart, ID, StoreID).
 

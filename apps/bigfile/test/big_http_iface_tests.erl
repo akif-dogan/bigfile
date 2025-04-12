@@ -641,7 +641,7 @@ test_find_external_tx(_) ->
 	{ok, FoundTXID} =
 		big_util:do_until(
 			fun() ->
-				case big_http_iface_client:get_tx([big_test_node:peer_ip(main)], TX#tx.id) of
+				case big_http_iface_client:get_tx(big_test_node:peer_ip(main), TX#tx.id) of
 					not_found ->
 						false;
 					TX ->

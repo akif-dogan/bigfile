@@ -1,37 +1,40 @@
 %%%
-%%% @doc Exposes access to an internal Bigfile client to external nodes on the network.
+%%% @doc Exposes access to an internal Arweave client to external nodes on the network.
 %%%
 
 -module(big_http_iface_client).
 
 -export([send_tx_json/3, send_tx_json/4, send_tx_binary/3, send_tx_binary/4]).
 -export([send_block_json/3, send_block_binary/3, send_block_binary/4,
-	 send_block_announcement/2,
-	 get_block/3, get_tx/2, get_txs/2,
-	 get_tx_from_remote_peer/2, get_tx_from_remote_peer/3,
-	 get_tx_data/2, get_wallet_list_chunk/2, get_wallet_list_chunk/3,
-	 get_wallet_list/2, add_peer/1, get_info/1, get_info/2, get_peers/1,
-	 get_time/2, get_height/1, get_block_index/3,
-	 get_sync_record/1, get_sync_record/3,
-	 get_chunk_binary/3, get_mempool/1,
-	 get_sync_buckets/1, get_recent_hash_list/1,
-	 get_recent_hash_list_diff/2, get_reward_history/3,
-	 get_block_time_history/3, push_nonce_limiter_update/3,
-	 get_vdf_update/1, get_vdf_session/1, get_previous_vdf_session/1,
-	 get_cm_partition_table/1, cm_h1_send/2, cm_h2_send/2,
-	 cm_publish_send/2, get_jobs/2, post_partial_solution/2,
-	 get_pool_cm_jobs/2, post_pool_cm_jobs/2,
-	 post_cm_partition_table_to_pool/2]).
+	send_block_announcement/2,
+	get_block/3, get_tx/2, get_txs/2, get_tx_from_remote_peers/3,
+	get_tx_data/2, get_wallet_list_chunk/2, get_wallet_list_chunk/3,
+	get_wallet_list/2, add_peer/1, get_info/1, get_info/2, get_peers/1,
+	get_time/2, get_height/1, get_block_index/3,
+	get_sync_record/1, get_sync_record/3, get_sync_record/4,
+	get_chunk_binary/3, get_mempool/1,
+	get_sync_buckets/1, get_recent_hash_list/1,
+	get_recent_hash_list_diff/2, get_reward_history/3,
+	get_block_time_history/3, push_nonce_limiter_update/3,
+	get_vdf_update/1, get_vdf_session/1, get_previous_vdf_session/1,
+	get_cm_partition_table/1, cm_h1_send/2, cm_h2_send/2,
+	cm_publish_send/2, get_jobs/2, post_partial_solution/2,
+	get_pool_cm_jobs/2, post_pool_cm_jobs/2,
+	post_cm_partition_table_to_pool/2]).
 -export([get_block_shadow/2, get_block_shadow/3, get_block_shadow/4]).
 
--include_lib("bigfile/include/big.hrl").
--include_lib("bigfile/include/big_config.hrl").
--include_lib("bigfile/include/big_consensus.hrl").
--include_lib("bigfile/include/big_data_sync.hrl").
--include_lib("bigfile/include/big_data_discovery.hrl").
--include_lib("bigfile/include/big_mining.hrl").
--include_lib("bigfile/include/big_wallets.hrl").
--include_lib("bigfile/include/big_pool.hrl").
+%% -- Testing exports
+-export([get_tx_from_remote_peer/3]).
+%% -- End of testing exports
+
+-include("big.hrl").
+-include("big_config.hrl").
+-include("big_consensus.hrl").
+-include("big_data_sync.hrl").
+-include("big_data_discovery.hrl").
+-include("big_mining.hrl").
+-include("big_wallets.hrl").
+-include("big_pool.hrl").
 
 %%--------------------------------------------------------------------
 %% @doc Send a JSON-encoded transaction to the given Peer with default
@@ -80,7 +83,7 @@ send_tx_json(Peer, TXID, Bin, Opts) ->
 		method => post,
 		peer => Peer,
 		path => "/tx",
-		headers => add_header(<<"bigfile-tx-id">>, big_util:encode(TXID), p2p_headers()),
+		headers => add_header(<<"arweave-tx-id">>, big_util:encode(TXID), p2p_headers()),
 		body => Bin,
 		connect_timeout => ConnectTimeout * 1000,
 		timeout => Timeout * 1000
@@ -367,7 +370,7 @@ get_sync_record(Peer) ->
 		peer => Peer,
 		method => get,
 		path => "/data_sync_record",
-		timeout => 180 * 1000,
+		timeout => 30 * 1000,
 		connect_timeout => 2000,
 		limit => ?MAX_ETF_SYNC_RECORD_SIZE,
 		headers => Headers
@@ -380,7 +383,20 @@ get_sync_record(Peer, Start, Limit) ->
 		method => get,
 		path => "/data_sync_record/" ++ integer_to_list(Start) ++ "/"
 				++ integer_to_list(Limit),
-		timeout => 180 * 1000,
+		timeout => 30 * 1000,
+		connect_timeout => 5000,
+		limit => ?MAX_ETF_SYNC_RECORD_SIZE,
+		headers => Headers
+	}), Start, Limit).
+
+get_sync_record(Peer, Start, End, Limit) ->
+	Headers = [{<<"Content-Type">>, <<"application/etf">>}],
+	handle_sync_record_response(big_http:req(#{
+		peer => Peer,
+		method => get,
+		path => "/data_sync_record/" ++ integer_to_list(Start) ++ "/"
+				++ integer_to_list(End) ++ "/" ++ integer_to_list(Limit),
+		timeout => 30 * 1000,
 		connect_timeout => 5000,
 		limit => ?MAX_ETF_SYNC_RECORD_SIZE,
 		headers => Headers
@@ -486,7 +502,7 @@ get_recent_hash_list_diff(Peer, HL) ->
 	}), HL, Peer).
 
 %% @doc Fetch the reward history from one of the given peers. The reward history
-%% must contain big_rewards:buffered_reward_history_length/1 elements. The reward history
+%% must contain ar_rewards:buffered_reward_history_length/1 elements. The reward history
 %% hashes are validated against the given ExpectedRewardHistoryHashes. Return not_found
 %% if we fail to fetch a reward history of the expected length from any of the peers.
 get_reward_history([Peer | Peers], B, ExpectedRewardHistoryHashes) ->
@@ -636,7 +652,7 @@ get_vdf_session(Peer) ->
 		case big_http:req(#{ peer => Peer, method => get, path => Path,
 			timeout => 10000, headers => p2p_headers() }) of
 		{ok, {{<<"200">>, _}, _, Bin, _, _}} ->
-				big_serialize:binary_to_nonce_limiter_update(Format, Bin);
+			big_serialize:binary_to_nonce_limiter_update(Format, Bin);
 		{ok, {{<<"404">>, _}, _, _, _, _}} ->
 			{error, not_found};
 		{ok, {{Status, _}, _, ResponseBody, _, _}} ->
@@ -1076,20 +1092,22 @@ get_txs(Height, Peers, [TXID | Rest], TXs, TotalSize) ->
 	end.
 
 %% @doc Retreive a tx by ID from the memory pool, disk, or a remote peer.
+get_tx(Peer, TX) when not is_list(Peer) ->
+	get_tx([Peer], TX);
 get_tx(_Peers, #tx{} = TX) ->
 	TX;
 get_tx(Peers, TXID) ->
 	case big_mempool:get_tx(TXID) of
 		not_found ->
-			get_tx_from_disk_or_peer(Peers, TXID);
+			get_tx_from_disk_or_peers(Peers, TXID);
 		TX ->
 			TX
 	end.
 
-get_tx_from_disk_or_peer(Peers, TXID) ->
+get_tx_from_disk_or_peers(Peers, TXID) ->
 	case big_storage:read_tx(TXID) of
 		unavailable ->
-			case get_tx_from_remote_peer(Peers, TXID) of
+			case get_tx_from_remote_peers(Peers, TXID) of
 				not_found ->
 					not_found;
 				{TX, _Peer, _Time, _Size} ->
@@ -1099,19 +1117,20 @@ get_tx_from_disk_or_peer(Peers, TXID) ->
 			TX
 	end.
 
-get_tx_from_remote_peer(Peers, TXID) ->
-	get_tx_from_remote_peer(Peers, TXID, true).
+get_tx_from_remote_peers(Peers, TXID) ->
+	get_tx_from_remote_peers(Peers, TXID, true).
 
-get_tx_from_remote_peer([], _TXID, _RatePeer) ->
+get_tx_from_remote_peers([], _TXID, _RatePeer) ->
 	not_found;
-get_tx_from_remote_peer(Peers, TXID, RatePeer) when is_list(Peers) ->
+get_tx_from_remote_peers(Peers, TXID, RatePeer) ->
 	Peer = lists:nth(rand:uniform(min(5, length(Peers))), Peers),
 	case get_tx_from_remote_peer(Peer, TXID, RatePeer) of
 		{#tx{} = TX, Peer, Time, Size} ->
 			{TX, Peer, Time, Size};
 		_ ->
-			get_tx_from_remote_peer(Peers -- [Peer], TXID, RatePeer)
-	end;
+			get_tx_from_remote_peers(Peers -- [Peer], TXID, RatePeer)
+	end.
+
 get_tx_from_remote_peer(Peer, TXID, RatePeer) ->
 	Release = big_peers:get_peer_release(Peer),
 	Encoding = case Release >= 52 of true -> binary; _ -> json end,
@@ -1249,7 +1268,8 @@ get_peers(Peer) ->
 					timeout => 2 * 1000
 				}),
 			PeerArray = big_serialize:dejsonify(Body),
-			lists:map(fun big_util:parse_peer/1, PeerArray)
+			PeersList = lists:map(fun big_util:parse_peer/1, PeerArray),
+			lists:flatten(PeersList)
 		end
 	catch _:_ -> unavailable
 	end.
@@ -1390,16 +1410,16 @@ handle_cm_noop_response(Response) ->
 	{error, Response}.
 
 p2p_headers() ->
-	{ok, Config} = application:get_env(bigfile, config),
+	{ok, Config} = application:get_env(arweave, config),
 	[{<<"x-p2p-port">>, integer_to_binary(Config#config.port)},
 			{<<"x-release">>, integer_to_binary(?RELEASE_NUMBER)}].
 
 cm_p2p_headers() ->
-	{ok, Config} = application:get_env(bigfile, config),
+	{ok, Config} = application:get_env(arweave, config),
 	add_header(<<"x-cm-api-secret">>, Config#config.cm_api_secret, p2p_headers()).
 
 pool_client_headers() ->
-	{ok, Config} = application:get_env(bigfile, config),
+	{ok, Config} = application:get_env(arweave, config),
 	Headers = add_header(<<"x-pool-api-key">>, Config#config.pool_api_key, p2p_headers()),
 	case Config#config.pool_worker_name of
 		not_set ->
@@ -1413,4 +1433,3 @@ add_header(Name, Value, Headers) when is_binary(Name) andalso is_binary(Value) -
 add_header(Name, Value, Headers) ->
 	?LOG_ERROR([{event, invalid_header}, {name, Name}, {value, Value}]),
 	Headers.
-
