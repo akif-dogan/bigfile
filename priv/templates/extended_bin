@@ -7,6 +7,18 @@
 set -e
 
 ######################################################################
+# Switch to user or dev mode. bin/bigfile should be the script used
+# only by users, and bin/bigfile-dev should be the one used only
+# for developers.
+######################################################################
+case ${0##*/}
+in
+  bigfile-dev)
+    export BIGFILE_DEV=1
+    ;;
+esac
+
+######################################################################
 # EPMD Configuration. force epmd to listen on loopback interface.
 ######################################################################
 export ERL_EPMD_ADDRESS="${ERL_EPMD_ADDRESS:=127.0.0.1,::1}"
@@ -22,6 +34,12 @@ export ERL_EPMD_PORT="${ERL_EPMD_PORT:=4369}"
 # to do its work.
 RUN_ERL_DISABLE_FLOWCNTRL=${RUN_ERL_DISABLE_FLOWCNTRL:-true}
 export RUN_ERL_DISABLE_FLOWCNTRL
+RUN_ERL_LOG_GENERATIONS=${RUN_ERL_LOG_GENERATIONS:-1}
+export RUN_ERL_LOG_GENERATIONS
+RUN_ERL_LOG_MAXSIZE=${RUN_ERL_LOG_MAXSIZE:-$((100*1024*1024))}
+export RUN_ERL_LOG_MAXSIZE
+RUN_ERL_LOG_ALIVE_MINUTES=${RUN_ERL_LOG_ALIVE_MINUTES:-15}
+export RUN_ERL_LOG_ALIVE_MINUTES
 
 if [ "$TERM" = "dumb" ] || [ -z "$TERM" ]; then
   export TERM=screen
@@ -39,15 +57,58 @@ case $OSTYPE in
     ;;
 esac
 [ -z "$SCRIPT" ] && SCRIPT=$0
-SCRIPT_DIR="$(cd "$(dirname "$SCRIPT")" && pwd -P)"
-PARENT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
-SYSTEM_NAME="$(uname -s)"
-RELEASE_ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd -P)"
-# Make the value available to variable substitution calls below
-export REL_NAME="{{ release_name }}"
-REL_VSN="{{ release_version }}"
+export SCRIPT_DIR="$(cd "$(dirname "$SCRIPT")" && pwd -P)"
+export PARENT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd  -P)"
+export SYSTEM_NAME="$(uname -s)"
+export RELEASE_ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd -P)"
+export REBAR_CONFIG="${RELEASE_ROOT_DIR}/rebar.config"
+export BUILD_DIR="${RELEASE_ROOT_DIR}/_build"
 
-# export these to match mix release environment variables
+# let extract release relx information from rebar.config.
+# the following erlang code will read/parse the file
+# and extract the information required. In case of issue
+# it print an error message and return 1, else 0.
+extract_release_from_rebar_config() {
+	erl -noshell -eval '
+		try
+			% extract file from REBAR_CONFIG variable
+			C = case os:getenv("REBAR_CONFIG") of
+				false -> throw("REBAR_CONFIG not set");
+				VRC -> VRC
+			end,
+
+			% read/parse rebar.config
+			F = case file:consult(C) of
+				{ok, FC} -> FC;
+				{error, EC} -> throw(EC)
+			end,
+
+			% extract relx section
+			R = case proplists:get_value(relx, F) of
+				undefined -> throw("relx section not found");
+				RX -> RX
+			end,
+
+			% extract release section
+			V = case lists:keyfind(release, 1, R) of
+				M = {release, {_, VX}, _} -> VX;
+				_ -> throw("release not found")
+			end,
+			io:format("~s~n", [V]),
+			erlang:halt(0)
+		catch
+			_:E ->
+				io:format(standard_error, "error: ~p~n", [E]),
+				erlang:halt(255)
+		end.
+	'
+	return $?
+}
+
+# Make the value available to variable substitution calls below
+# The following variables are usually hardcoded by rebar3
+export REL_NAME="{{ release_name }}"
+export REL_VSN="{{ release_version }}"
 export RELEASE_NAME="{{ release_name }}"
 export RELEASE_VSN="{{ release_version }}"
 export RELEASE_GIT_REV="{{ git_rev }}"
@@ -56,11 +117,47 @@ export RELEASE_ERTS="{{ release_erts_version }}"
 export RELEASE_CC="{{ cc_version }}"
 export RELEASE_CMAKE="{{ cmake_version }}"
 export RELEASE_GMAKE="{{ gmake_version }}"
+export ERTS_VSN="{{ erts_vsn }}"
 export RELEASE_PROG="${SCRIPT}"
 
-ERTS_VSN="{{ erts_vsn }}"
-REL_DIR="$RELEASE_ROOT_DIR/releases/$REL_VSN"
-RUNNER_LOG_DIR="${RUNNER_LOG_DIR:-$RELEASE_ROOT_DIR/log}"
+# ensure REL_NAME and RELEASE_NAME variables are set
+# by default, if the script is running from sources,
+# the release name must be bigfile.
+test -z "${REL_NAME}" && export REL_NAME="bigfile"
+test -z "${RELEASE_NAME}" && export RELEASE_NAME="bigfile"
+
+# check REL_VSN variable content. This one is quite important
+# to be able to start bigfile.
+if test -z "${REL_VSN}"
+then
+	REL_VSN=$(extract_release_from_rebar_config)
+	if test $? -ne 0
+	then
+		echo "error: failed to read rebar file" 1>&2
+		exit 1
+	fi
+
+	if test -z "${REL_VSN}"
+	then
+		echo "error: no release found" 1>&2
+		exit 1
+	fi
+
+	export REL_VSN
+	export REL_PATH="${BUILD_DIR}/default/rel/${REL_NAME}/${REL_VSN}"
+	export REL_PATH_ALT="${BUILD_DIR}/default/rel/${REL_NAME}/releases/${REL_VSN}"
+	if ! test -e ${REL_PATH}
+	then
+		echo "error: ${REL_PATH} does not exist" 1>&2
+		if ! test "${ARWEAVE_DEV}"
+		then
+			exit 1
+		fi
+	fi
+fi
+
+export REL_DIR="${RELEASE_ROOT_DIR}/releases/${REL_VSN}"
+export RUNNER_LOG_DIR="${RUNNER_LOG_DIR:-$RELEASE_ROOT_DIR/logs}"
 export ESCRIPT_NAME="${ESCRIPT_NAME-$SCRIPT}"
 
 # if RELX_RPC_TIMEOUT is set then use that
@@ -97,7 +194,7 @@ _error () {
 }
 
 ######################################################################
-# Bigfile Section
+# Arweave Section
 ######################################################################
 
 # Not all systems supports randomx jit
@@ -133,7 +230,7 @@ bigfile_check_help() {
     exit 1
 }
 
-bigfile_check_nofile() {
+arweave_check_nofile() {
     recommendation="1000000"
     limit="$(ulimit -n)"
 
@@ -301,12 +398,32 @@ bigfile_doctor_help() {
 ######################################################################
 # Bigfile Developer mode Section
 ######################################################################
-# when BIGFILE_DEV environment variable is set, the release is rebuilt
+# when ARWEAVE_DEV environment variable is set, the release is rebuild
 bigfile_developer_mode() {
 	(
 	    cd ${PARENT_DIR} \
 		&& ./big-rebar3 ${BIGFILE_BUILD_TARGET:-default} release
+	    sleep 1
 	)
+}
+
+# check if a command (subcommand) is a developer command.
+is_bigfile_developer_command() {
+  local commands="test test_e2e"
+  local value="${1}"
+  if test "${BIGFILE_DEV}"
+  then
+    return 1
+  fi
+
+  for command in ${commands}
+  do
+    if test "${command}" = "${value}"
+    then
+      return 0
+    fi
+  done
+  return 1
 }
 
 ######################################################################
@@ -385,14 +502,14 @@ bigfile_test_run() {
 	else
 	    TEST_NODE="${TEST_NODE_NAME}@${TEST_NODE_HOST}"
 	fi
-	
+
 	TEST_PATH="$(./rebar3 as ${TEST_PROFILE} path)"
 	TEST_PATH_BASE="$(./rebar3 as ${TEST_PROFILE} path --base)/lib/bigfile/test"
-	PARAMS="-pa ${TEST_PATH} ${TEST_PATH_BASE} -config ${TEST_CONFIG} -noshell"	
+	PARAMS="-pa ${TEST_PATH} ${TEST_PATH_BASE} -config ${TEST_CONFIG} -noshell"
 	ENTRY_POINT="-run big ${TEST_MODULE} ${*} -s init stop"
 	command="erl ${PARAMS} -name ${TEST_NODE} -setcookie ${TEST_COOKIE} ${ENTRY_POINT}"
 	set +e
-	set -x	
+	set -x
 	echo -e "\033[0;32m===> Execute command ${command}\033[0m"
 	${command} 2>&1 > "${TEST_LOG}"
 	exit $?
@@ -457,7 +574,7 @@ relx_usage() {
 	    ;;
 	foreground_clean)
 	    echo "Usage: $REL_NAME foreground"
-	    echo "Starts the Bigfile release in the foreground, meaning all output"
+	    echo "Starts the Arweave release in the foreground, meaning all output"
 	    echo "going to stdout but without an interactive shell."
 	    echo "No entry point is configured"
 	    ;;
@@ -511,35 +628,45 @@ relx_usage() {
 		relx_run_extension "$EXTENSION_SCRIPT" help
 	    else
 		EXTENSIONS=$(echo $EXTENSIONS | sed -e 's/|undefined//g')
-		echo "Usage: ${REL_NAME} [COMMAND] [ARGS]
+		echo "Usage: ${REL_NAME} [COMMAND] [ARGS]"
+		echo ""
+		echo "Bigfile Commands:"
+		echo ""
+		echo "  benchmark               Run Bigfile Benchmarks"
+		echo "  check                   Check system parameters for Bigfile"
+		echo "  console                 Start Bigfile with an interactive Erlang shell"
+		echo "  console_clean           Start an interactive Erlang shell without the Bigfile release's applications"
+		echo "  daemon                  Start Bigfile in the background with run_erl (named pipes)"
+		echo "  daemon_attach           Connect to Bigfile node started as daemon with to_erl (named pipes)"
+		echo "  doctor                  Start Bigfile Data Analyzer tool"
+		echo "  escript                 Run an escript in the same environment as the Bigfile release"
+		echo "  eval [Exprs]            Run Erlang expressions on Bigfile node"
+		echo "  foreground              Start Bigfile with output to stdout"
+		echo "  foreground_clean        Start Bigfile VM without any entry-point as arguments"
+		echo "  pid                     Print the PID of the Bigfile OS process"
+		echo "  ping                    Print pong if the Bigfile node is alive"
+		echo "  reboot                  Reboot the entire Bigfile VM"
+		echo "  reload                  Restart only Bigfile application in the VM"
+		echo "  remote_console          Connect remote shell to the Bigfile node"
+		echo "  restart                 Restart the running applications but not the Bigfile VM"
+		echo "  rpc [Mod [Fun [Args]]]] Run apply(Mod, Fun, Args) on the Bigfile node"
+		echo "  status                  Verify if the Bigfile node is running and then run status hook scripts"
+		echo "  stop                    Stop the Bigfile node"
+		echo "  version                 Print the Bigfile version"
+		echo "  wallet                  Manage Bigfile wallets"
 
-Bigfile Commands:
+		if test "$EXTENSIONS"
+		then
+		  echo "$EXTENSIONS"
+                fi
 
-  benchmark               Run Bigfile Benchmarks
-  check                   Check system parameters for Bigfile
-  console                 Start Bigfile with an interactive Erlang shell
-  console_clean           Start an interactive Erlang shell without the Bigfile release's applications
-  daemon                  Start Bigfile in the background with run_erl (named pipes)
-  daemon_attach           Connect to Bigfile node started as daemon with to_erl (named pipes)
-  doctor                  Start Bigfile Data Analyzer tool
-  escript                 Run an escript in the same environment as the Bigfile release
-  eval [Exprs]            Run Erlang expressions on Bigfile node
-  foreground              Start Bigfile with output to stdout
-  foreground_clean        Start Bigfile VM without any entry-point as arguments
-  pid                     Print the PID of the Bigfile OS process
-  ping                    Print pong if the Bigfile node is alive
-  reboot                  Reboot the entire Bigfile VM
-  reload                  Restart only Bigfile application in the VM
-  remote_console          Connect remote shell to the Bigfile node
-  restart                 Restart the running applications but not the Bigfile VM
-  rpc [Mod [Fun [Args]]]] Run apply(Mod, Fun, Args) on the Bigfile node
-  status                  Verify if the Bigfile node is running and then run status hook scripts
-  stop                    Stop the Bigfile node
-  test                    Run Bigfile test Suite
-  test_e2e                Run Bigfile e2e Test Suite
-  version                 Print the Bigfile version
-  wallet                  Manage Bigfile wallets
-  $EXTENSIONS"
+		if test "${BIGFILE_DEV}"
+                then
+		  echo ""
+		  echo "Bigfile Commands (developer mode):"
+		  echo "  test                    Run Bigfile test Suite"
+		  echo "  test_e2e                Run Bigfile e2e Test Suite"
+		fi
 	    fi
 	    ;;
     esac
@@ -815,15 +942,40 @@ replace_os_vars() {
 
 add_path() {
     # Use $CWD/$1 if exists, otherwise releases/VSN/$1
-    IN_FILE_PATH=$2
-    if [ -z "$IN_FILE_PATH" ]; then
-	if [ -f "$RELEASE_ROOT_DIR/$1" ]; then
-	    IN_FILE_PATH="$RELEASE_ROOT_DIR/$1"
-	else
-	    IN_FILE_PATH="$REL_DIR/$1"
-	fi
+    local FILE=${1}; shift
+    local IN_FILE_PATH=${1}; shift
+    local EXTRA_PATHS=${*}
+
+    if [ "${IN_FILE_PATH}" ]
+    then
+      echo "${IN_FILE_PATH}"
+      return 0
     fi
-    echo "$IN_FILE_PATH"
+
+    for e in "${RELEASE_ROOT_DIR}" "${REL_DIR}" ${EXTRA_PATHS}
+    do
+      if [ -f "${e}/${FILE}" ]
+      then
+        echo "${e}/${FILE}"
+        return 0
+      fi
+    done
+    return 1
+}
+
+multi_check_replace_os_vars() {
+	local file="${1}"; shift
+	while test "${*}"
+	do
+		local path=${1}; shift
+		local ret=$(check_replace_os_vars ${file} ${path})
+		if test "${ret}"
+		then
+			echo ${ret}
+			return 0
+		fi
+	done
+	return 1
 }
 
 check_replace_os_vars() {
@@ -942,6 +1094,39 @@ process_internal_args() {
     done
 }
 
+# This function takes a list of terms (usually arguments)
+# and split them in two categories, the one before --
+# and the one after. The one before is used as Erlang
+# VM parameters and should overwrite default configuration,
+# The last part (LOCAL_PARAMS) contains bigfile parameters.
+# This function export LOCAL_PARAMS and VM_PARAMS variables.
+parse_args() {
+	local separator="--"
+	local vm_params=""
+	local params=""
+	while test "${*}"
+	do
+		local arg="${1}"
+		if test "${arg}" = ${separator}
+		then
+			test "${vm_params}" \
+				&& vm_params="${vm_params} ${params}" \
+				|| vm_params="${params}"
+			params=""
+		else
+			test "${params}" \
+				&& params="${params} ${arg}" \
+				|| params="${arg}"
+		fi
+
+		# don't forget to shift to remove the previous
+		# argument from the list
+		shift
+	done
+	export VM_PARAMS="${vm_params}"
+	export LOCAL_PARAMS="${params}"
+}
+
 # if BIGFILE_DEV environment is defined, then
 # we start by rebuild a release.
 if test "${BIGFILE_DEV}"
@@ -961,10 +1146,30 @@ export PROGNAME="erl"
 export LD_LIBRARY_PATH="$ERTS_DIR/lib:$LD_LIBRARY_PATH"
 SYSTEM_LIB_DIR="$(dirname "$ERTS_DIR")/lib"
 
-VMARGS_PATH=$(add_path vm.args "$VMARGS_PATH")
-
-VMARGS_PATH=$(check_replace_os_vars vm.args "$VMARGS_PATH")
-RELX_CONFIG_PATH=$(check_replace_os_vars sys.config "$RELX_CONFIG_PATH")
+# vm_args configuration, we can use priv/files/vm_args or
+# the path from the release.
+VMARGS_PATH=$(add_path \
+	vm.args \
+	"${VMARGS_PATH}" \
+	"${REL_DIR}" \
+	"${REL_PATH}" \
+	"${REL_PATH_ALT}" \
+	"${RELEASE_ROOT_DIR}/config" \
+	"${RELEASE_ROOT_DIR}/priv/templates")
+VMARGS_PATH=$(multi_check_replace_os_vars \
+	vm.args \
+	"${VMARGS_PATH}"\
+	"${REL_DIR}" \
+	"${REL_PATH}" \
+	"${REL_PATH_ALT}" \
+	"${RELEASE_ROOT_DIR}/config")
+RELX_CONFIG_PATH=$(multi_check_replace_os_vars \
+	sys.config \
+	"${RELX_CONFIG_PATH}" \
+	"${REL_DIR}" \
+	"${REL_PATH}" \
+	"${REL_PATH_ALT}" \
+	"${RELEASE_ROOT_DIR}/config")
 
 # Check vm.args and other files referenced via -args_file parameters for:
 #    - nonexisting -args_files
@@ -1127,20 +1332,26 @@ PIPE_DIR="${PIPE_DIR:-/tmp/erl_pipes/$NAME/}"
 
 cd "$ROOTDIR"
 
+if is_arweave_developer_command "${1}"
+then
+  relx_usage
+  exit 1
+fi
+
 # Check the first argument for instructions
 case "$1" in
     check)
 	shift
-	bigfile_check ${*}
+	arweave_check ${*}
 	;;
 
     version)
 	shift
-	bigfile_version ${*}
+	arweave_version ${*}
 	;;
 
     daemon|daemon_boot)
-	bigfile_check
+	arweave_check
 	case "$1" in
 	    daemon)
 		shift
@@ -1171,10 +1382,12 @@ case "$1" in
 	relx_run_hooks "$PRE_START_HOOKS"
 
 	# check system configuration
-	bigfile_check
+	arweave_check
 
-	"$BINDIR/run_erl" -daemon "$PIPE_DIR" "$RUNNER_LOG_DIR" \
-			  "exec \"$RELEASE_ROOT_DIR/bin/$REL_NAME\" \"$START_OPTION\" ${ARGS}"
+	"$BINDIR/run_erl" \
+	  -daemon "$PIPE_DIR" \
+	  "$RUNNER_LOG_DIR" \
+	  "exec \"$RELEASE_ROOT_DIR/bin/$REL_NAME\" \"$START_OPTION\" ${ARGS}"
 
 	# wait for node to be up before running hooks
 	while ! erl_rpc erlang is_alive > /dev/null 2>&1
@@ -1353,6 +1566,12 @@ case "$1" in
 		;;
 	esac
 
+	# split the argument in two parts based on the previously
+	# passed args, LOCAL_PARAMS is for bigfile, VM_PARAMS is for
+	# the vm.
+	parse_args ${ARGS}
+	ARGS=${LOCAL_PARAMS}
+
 	# if not set by user or console_clean use embedded
 	CODE_LOADING_MODE="${CODE_LOADING_MODE:-embedded}"
 
@@ -1365,12 +1584,16 @@ case "$1" in
 
 	# Dump environment info for logging purposes
 	# shellcheck disable=SC2086
-	echo "Exec: $BINDIR/erlexec" $FOREGROUNDOPTIONS \
-	    -boot "$BOOTFILE" -mode "$CODE_LOADING_MODE" \
+	echo "Exec: $BINDIR/erlexec" \
+	    ${VM_PARAMS} \
+	    ${EXTRA_DIST_ARGS} \
+	    ${FOREGROUNDOPTIONS} \
+	    -boot "$BOOTFILE" \
+	    -mode "$CODE_LOADING_MODE" \
 	    -boot_var SYSTEM_LIB_DIR "$SYSTEM_LIB_DIR" \
 	    -config "$RELX_CONFIG_PATH" \
 	    -args_file "$VMARGS_PATH" \
-	    $EXTRA_DIST_ARGS -- ${BIGFILE_OPTS} ${ARGS}
+	    -- ${BIGFILE_OPTS} ${ARGS}
 	echo "Root: $ROOTDIR"
 
 	# Log the startup
@@ -1385,17 +1608,21 @@ case "$1" in
 	relx_run_hooks "$PRE_START_HOOKS"
 
 	# check system configuration
-	bigfile_check
+	arweave_check
 
 	# Start the VM
 	# The variabre FOREGROUNDOPTIONS must NOT be quoted.
 	# shellcheck disable=SC2086
-	exec "$BINDIR/erlexec" $FOREGROUNDOPTIONS \
-	    -boot "$BOOTFILE" -mode "$CODE_LOADING_MODE" \
+	exec "$BINDIR/erlexec" \
+	    ${VM_PARAMS} \
+	    ${EXTRA_DIST_ARGS} \
+	    ${FOREGROUNDOPTIONS} \
+	    -boot "$BOOTFILE" \
+	    -mode "$CODE_LOADING_MODE" \
 	    -boot_var SYSTEM_LIB_DIR "$SYSTEM_LIB_DIR" \
 	    -config "$RELX_CONFIG_PATH" \
 	    -args_file "$VMARGS_PATH" \
-	    $EXTRA_DIST_ARGS -- ${BIGFILE_OPTS} ${ARGS}
+	    -- ${ARWEAVE_OPTS} ${ARGS}
 	# exec will replace the current image and nothing else gets
 	# executed from this point on, this explains the absence
 	# of the pre start hook
@@ -1431,25 +1658,28 @@ case "$1" in
 	pgrep epmd && pkill epmd
 
 	# fetch the port of the remote bigfile node
-	REMOTE_EPMD_PORT=$(ssh ${target} "epmd -names | sed 1d | awk '$2=="^bigfile$" {print $NF}'")
+	REMOTE_EPMD_PORT=$(ssh ${target} "epmd -names | sed 1d | awk '$2==\"^bigfile$\" {print $NF}'")
 
 	# create a local forward tunnel
 	ssh -L ${ERL_EPMD_PORT}:localhost:${ERL_EPMD_PORT} \
 		-L ${REMOTE_EPMD_PORT=}:localhost:${REMOTE_EPMD_PORT} \
-		${target} echo "epmd tunnel is ready (localhost:${REMOTE_EPMD_PORT})"
+		${target} echo "epmd tunnel is ready on localhost:${REMOTE_EPMD_PORT}"
 	;;
     remote_observer)
 	# start observer locally, assuming a tunnel has been previouly
 	# created
-	erl -name observer@127.0.0.1 -setcookie ${COOKIE} -hidden -run observer
+	OBSERVER_ID=$(($(date "+%N")%6421))
+	erl -name observer-${OBSERVER_ID}@127.0.0.1 \
+		-setcookie ${COOKIE} \
+		-hidden -run observer
 	;;
     test)
 	shift
-	bigfile_test ${*}
+	arweave_test ${*}
 	;;
     test_e2e)
 	shift
-	bigfile_e2e ${*}
+	arweave_e2e ${*}
 	;;
     help)
 	if [ -z "$2" ]; then
