@@ -246,7 +246,7 @@ bigfile_check_nofile() {
 	_warning "    sysctl fs.file-max"
 	_warning "or"
 	_warning "    ulimit -n"
-	_warning "see more at https://docs.bigfile.org/"
+	_warning "see more at https://thebigfile.com/"
 	_warning "************************************************************************"
     fi
 }
@@ -263,7 +263,7 @@ bigfile_check_hugepages() {
 	_warning "huge pages is not configured on this system."
 	_warning "It should be set to ${recommendation}. This value can be check with:"
 	_warning "    sysctl vm.nr_hugepages"
-	_warning "see more at https://docs.bigfile.org/"
+	_warning "see more at https://thebigfile.com/"
 	_warning "************************************************************************"
     fi
 }
