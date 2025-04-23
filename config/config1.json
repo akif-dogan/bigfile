@@ -5,7 +5,7 @@
   "mine": false,
   "port": 1984,
   "data_dir": "/opt/data_dir",
-  "log_dir": "/opt/log_dir",
+  "log_dir": "/opt/data_dir/logs",
   "storage_modules": [
     "0,gCmvhZDHpVFKQ7spt8XHxe5FGtJSxcIHxcNpBFKt9NI.replica.2.9"
   ],
@@ -39,9 +39,8 @@
   },
   "disk_space": 500,
   "disk_space_check_frequency": 10,
-  "init": true,
   "internal_api_secret": "some_very_very_long_secret",
-  "enable": ["feature_1", "feature_2","gateway", "gateway_metrics"],
+  "enable": ["feature_1", "feature_2"],
   "disable": ["feature_3", "feature_4"],
   "gateway": "thebigfile.info",
   "custom_domains": ["thebigfile.info"],
